@@ -1,0 +1,16 @@
+# Dependencies & build output
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Environment — never commit real keys; only the template ships
+.env
+.env.*
+!.env.example
+
+# Misc
+.DS_Store
+*.log
+.vercel

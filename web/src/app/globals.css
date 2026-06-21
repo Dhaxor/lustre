@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ivory: #fbfaf7;
+  --color-cream: #f4f1ea;
+  --color-ink: #14241d;
+  --color-forest: #1e3a2f;
+  --color-emerald: #2e6b53;
+  --color-sage: #5b6b63;
+  --color-gold: #a8803f;
+  --color-gold-soft: #c8a86a;
+  --color-champagne: #ece0c6;
+  --color-line: #e7e3da;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), Georgia, "Times New Roman", serif;
+}
+
+:root {
+  --background: var(--color-ivory);
+  --foreground: var(--color-ink);
+}
+
+body {
+  background: var(--color-ivory);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.quiet-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.quiet-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 9999px;
+}
