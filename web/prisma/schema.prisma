@@ -1,0 +1,233 @@
+// Lustre data model (Phase 1). Postgres on Supabase.
+// Auth is handled by Supabase (auth.users); app tables link via `userId` (the
+// Supabase auth uuid). The booking.paymentIntentId unique constraint enforces
+// payment idempotency at the database level (one PaymentIntent -> one booking).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: connection URLs live in prisma.config.ts (migrations) and the
+// runtime driver adapter (src/lib/prisma.ts), not here.
+datasource db {
+  provider = "postgresql"
+}
+
+enum SupplySource {
+  managed
+  connected
+  handy
+  leadgen
+}
+
+enum BookingStatus {
+  booked
+  in_progress
+  completed
+  verified
+  settled
+  canceled
+  reclean_requested
+}
+
+enum Frequency {
+  one_time
+  weekly
+  biweekly
+  monthly
+}
+
+enum ServiceType {
+  standard
+  deep
+  move_out
+  str_turnover
+  commercial
+}
+
+enum TimeSlot {
+  morning
+  midday
+  afternoon
+  evening
+}
+
+enum MembershipTier {
+  none
+  plus
+  premier
+}
+
+enum FulfillmentStatus {
+  confirmed
+  pending
+  lead_created
+  canceled
+}
+
+enum GuaranteeType {
+  reclean
+  refund
+}
+
+enum GuaranteeStatus {
+  open
+  approved
+  denied
+  resolved
+}
+
+model Customer {
+  id               String           @id @default(cuid())
+  userId           String           @unique // Supabase auth.users.id
+  email            String           @unique
+  name             String?
+  stripeCustomerId String?          @unique
+  membershipTier   MembershipTier   @default(none)
+  preferredProId   String?
+  addresses        Address[]
+  bookings         Booking[]
+  recurrencePlans  RecurrencePlan[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model Address {
+  id          String    @id @default(cuid())
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  zip         String
+  bedrooms    Int
+  bathrooms   Int
+  sqft        Int?
+  accessNotes String?
+  bookings    Booking[]
+  createdAt   DateTime  @default(now())
+}
+
+model Pro {
+  id                 String            @id @default(cuid())
+  userId             String?           @unique // Supabase auth user, once onboarded
+  name               String
+  email              String?           @unique
+  rating             Float             @default(5)
+  reliability        Float             @default(0.9)
+  skills             String[]
+  coverageZips       String[]
+  certifications     String[]
+  bio                String?
+  connectedAccountId String?           @unique // Stripe Connect Express account
+  payoutsEnabled     Boolean           @default(false)
+  active             Boolean           @default(true)
+  availability       ProAvailability[]
+  bookings           Booking[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+}
+
+model ProAvailability {
+  id       String   @id @default(cuid())
+  proId    String
+  pro      Pro      @relation(fields: [proId], references: [id], onDelete: Cascade)
+  weekday  Int // 0 (Sun) .. 6 (Sat)
+  slot     TimeSlot
+  capacity Int      @default(1)
+
+  @@unique([proId, weekday, slot])
+}
+
+model Booking {
+  id               String          @id @default(cuid())
+  customerId       String?
+  customer         Customer?       @relation(fields: [customerId], references: [id])
+  addressId        String?
+  address          Address?        @relation(fields: [addressId], references: [id])
+  proId            String?
+  pro              Pro?            @relation(fields: [proId], references: [id])
+  source           SupplySource
+  serviceType      ServiceType
+  frequency        Frequency
+  date             String // YYYY-MM-DD
+  slot             TimeSlot
+  status           BookingStatus   @default(booked)
+  totalCents       Int
+  quote            Json
+  paymentIntentId  String?         @unique // idempotency: one PI -> one booking
+  recurrencePlanId String?
+  recurrencePlan   RecurrencePlan? @relation(fields: [recurrencePlanId], references: [id])
+  fulfillment      Fulfillment?
+  ledger           LedgerEntry?
+  guaranteeClaims  GuaranteeClaim[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([customerId])
+  @@index([proId])
+  @@index([date, slot])
+}
+
+model LedgerEntry {
+  id                String   @id @default(cuid())
+  bookingId         String   @unique
+  booking           Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  grossCents        Int
+  payoutCents       Int
+  commissionCents   Int
+  trustFeeCents     Int
+  paymentFeesCents  Int
+  reserveCents      Int
+  contributionCents Int
+  createdAt         DateTime @default(now())
+}
+
+model Fulfillment {
+  id          String            @id @default(cuid())
+  bookingId   String            @unique
+  booking     Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  source      SupplySource
+  externalRef String?
+  status      FulfillmentStatus @default(confirmed)
+  photos      String[]
+  createdAt   DateTime          @default(now())
+}
+
+model RecurrencePlan {
+  id          String      @id @default(cuid())
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceType ServiceType
+  cadence     Frequency
+  slot        TimeSlot
+  anchorProId String?
+  nextRunDate String?
+  active      Boolean     @default(true)
+  bookings    Booking[]
+  createdAt   DateTime    @default(now())
+}
+
+model GuaranteeClaim {
+  id        String          @id @default(cuid())
+  bookingId String
+  booking   Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type      GuaranteeType
+  status    GuaranteeStatus @default(open)
+  notes     String?
+  createdAt DateTime        @default(now())
+}
+
+// Stripe webhook idempotency — dedup keyed on event.id.
+model ProcessedEvent {
+  id        String   @id // Stripe event.id
+  type      String
+  createdAt DateTime @default(now())
+}
+
+// Overflow demand we couldn't fulfill in-network, monetized as a lead.
+model Lead {
+  id          String      @id @default(cuid())
+  zip         String
+  serviceType ServiceType
+  date        String
+  slot        TimeSlot
+  createdAt   DateTime    @default(now())
+}
